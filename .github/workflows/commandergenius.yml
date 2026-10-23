@@ -84,8 +84,15 @@ jobs:
           head -3 gamelauncher.menu.h
 
       - name: Patch Java files and build libraries
+        shell: bash
         run: |
-          ./changeAppSettings.sh
+          set -o pipefail
+          ./changeAppSettings.sh 2>&1 | tee settings.log && exit 0
+          grep -n -i -E 'error|fail|not found|No such|\*\*\*' settings.log | head -50 > errs.txt || true
+          tail -20 settings.log >> errs.txt
+          split -l 7 errs.txt chunk_
+          for f in chunk_*; do echo "::error::$(sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g' $f)"; done
+          exit 1
 
       - name: Set up Gradle and Android SDK licenses
         working-directory: project
