@@ -77,9 +77,11 @@ jobs:
           # Lua needs fseeko/ftello with 64-bit offsets, which 32-bit Android only has from API 24
           # (the Play Store minimum anyway)
           if grep -q '^APP_PLATFORM=' $CFG; then sed -i 's/^APP_PLATFORM=.*/APP_PLATFORM=android-24/' $CFG; else echo 'APP_PLATFORM=android-24' >> $CFG; fi
+          # Android 15+/16 devices with 16 KB memory pages refuse libraries aligned to 4 KB
+          sed -i "s|^AppLdflags='\(.*\)'|AppLdflags='\1 -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384'|" $CFG
           # xxd.c is a build-time helper tool with its own main(); keep it out of the app
           sed -i "s|^AppBuildExclude='\(.*\)'|AppBuildExclude='\1 commandergenius/src/engine/xxd.c commandergenius/GsKit/base/lua/lua.c'|" $CFG
-          grep -E '^(MultiABI|AppVersion|AppUsesJoystick|RedefinedKeysGamepad|AppBuildExclude|APP_PLATFORM)' $CFG
+          grep -E '^(MultiABI|AppVersion|AppUsesJoystick|RedefinedKeysGamepad|AppBuildExclude|APP_PLATFORM|AppLdflags)' $CFG
 
       - name: Generate gamelauncher.menu.h (normally done by CMake)
         run: |
@@ -125,8 +127,20 @@ jobs:
       - name: Package
         run: |
           mkdir -p upload/
+          sed -i 's/^zipalign 4 /zipalign -P 16 4 /' sign.sh
           ./sign.sh
           mv *.apk upload/
+          # Report the memory-page alignment of every native library (needs 0x4000 = 16 KB for Android 16)
+          RE=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf
+          mkdir -p libcheck && cd libcheck && unzip -q -o ../upload/*.apk 'lib/*'
+          BAD=""; ALL=""
+          for so in lib/*/*.so; do
+            A=$($RE -lW "$so" | awk '$1=="LOAD"{print $NF}' | sort -u | tr '\n' ' ')
+            ALL="$ALL $so=$A;"
+            case "$A" in *0x4000*|*0x10000*) ;; *) BAD="$BAD $so($A)";; esac
+          done
+          echo "::notice::Library alignment:$ALL"
+          if [ -n "$BAD" ]; then echo "::error::Not 16 KB aligned:$BAD"; fi
 
       - uses: actions/upload-artifact@v7
         with:
@@ -138,6 +152,14 @@ jobs:
     # Boot an Android emulator, install the APK, launch it and report any crash from logcat
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 30
+            target: google_apis
+          - api: 36
+            target: google_apis_ps16k
     steps:
       - uses: actions/download-artifact@v5
         with:
@@ -162,7 +184,7 @@ jobs:
           sleep 45
           adb logcat -d > logcat.txt
           PID=$(adb shell pidof net.sourceforge.clonekeenplus | tr -d '\r')
-          echo "::notice::App process after 45s: ${PID:-NOT RUNNING}"
+          echo "::notice::API $(adb shell getprop ro.build.version.sdk | tr -d '\r'), page size $(adb shell getconf PAGE_SIZE | tr -d '\r'): app process after 45s: ${PID:-NOT RUNNING}"
           grep -n -E 'FATAL|AndroidRuntime|DEBUG +:|beginning of crash|Abort message|signal [0-9]+|libapplication|UnsatisfiedLink|dlopen|clonekeenplus|Commander|CGenius|SDL' logcat.txt \
             | grep -v -E 'ActivityTaskManager: Displayed|chatty' | cut -c1-280 | tail -60 > errs.txt || true
           split -l 6 errs.txt chunk_ || true
@@ -174,8 +196,8 @@ jobs:
       - name: Launch the app in an emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
-          target: google_apis
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
           arch: x86_64
           disable-animations: true
           script: ./launch-test.sh
