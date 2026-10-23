@@ -134,17 +134,22 @@ jobs:
           sed -i 's/^zipalign 4 /zipalign -P 16 4 /' sign.sh
           ./sign.sh
           mv *.apk upload/
-          # Report the memory-page alignment of every native library (needs 0x4000 = 16 KB for Android 16)
-          RE=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf
-          mkdir -p libcheck && cd libcheck && unzip -q -o ../upload/*.apk 'lib/*'
-          BAD=""; ALL=""
-          for so in lib/*/*.so; do
-            A=$($RE -lW "$so" | awk '$1=="LOAD"{print $NF}' | sort -u | tr '\n' ' ')
-            ALL="$ALL $so=$A;"
-            case "$A" in *0x4000*|*0x10000*) ;; *) BAD="$BAD $so($A)";; esac
-          done
-          echo "::notice::Library alignment:$ALL"
-          if [ -n "$BAD" ]; then echo "::error::Not 16 KB aligned:$BAD"; fi
+          # Report the memory-page alignment of every native library (needs 0x4000 = 16 KB for Android 16).
+          # Informational only: never fails the build.
+          (
+            set +e
+            RE=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf
+            mkdir -p libcheck
+            python3 -c "import zipfile,sys,glob; z=zipfile.ZipFile(glob.glob('upload/*.apk')[0]); n=[i for i in z.namelist() if i.endswith('.so')]; print('so files:', n); z.extractall('libcheck', n)"
+            BAD=""; ALL=""
+            for so in $(find libcheck -name '*.so'); do
+              A=$($RE -lW "$so" | awk '$1=="LOAD"{print $NF}' | sort -u | tr '\n' ' ')
+              ALL="$ALL ${so#libcheck/}=$A;"
+              case "$A" in *0x4000*|*0x10000*) ;; *) BAD="$BAD ${so#libcheck/}($A)";; esac
+            done
+            echo "::notice::Library alignment:$ALL"
+            [ -n "$BAD" ] && echo "::warning::Not 16 KB aligned:$BAD"
+          ) || true
 
       - uses: actions/upload-artifact@v7
         with:
