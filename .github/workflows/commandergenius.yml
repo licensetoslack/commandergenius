@@ -53,7 +53,8 @@ jobs:
         run: |
           D=project/jni/application/commandergenius/commandergenius
           rm -rf "$D"
-          git clone --depth 1 --branch "$CG_TAG" https://github.com/gerstrong/Commander-Genius.git "$D"
+          git clone --depth 1 --branch "$CG_TAG" --recurse-submodules --shallow-submodules https://github.com/gerstrong/Commander-Genius.git "$D"
+          ls "$D/src/engine/cosmos" | head
 
       - name: Symlink the application dir
         run: |
