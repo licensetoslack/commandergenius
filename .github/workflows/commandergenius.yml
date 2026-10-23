@@ -86,8 +86,16 @@ jobs:
           echo "proguard.config=proguard.cfg;proguard-local.cfg" >> local.properties
 
       - name: Build
+        shell: bash
         run: |
-          ./build.sh
+          set -o pipefail
+          ./build.sh 2>&1 | tee build.log && exit 0
+          # Surface the compiler errors as annotations so they are readable via the API
+          grep -n -E 'error:|Error [0-9]|No rule to make|undefined reference|fatal|\*\*\*' build.log | grep -v 'warning:' | head -60 > errs.txt || true
+          [ -s errs.txt ] || tail -60 build.log > errs.txt
+          split -l 6 errs.txt chunk_
+          for f in chunk_*; do echo "::error::$(sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g' $f)"; done
+          exit 1
 
       - name: Package
         run: |
