@@ -69,9 +69,12 @@ jobs:
           # Pass physical gamepads through as SDL joysticks so Commander Genius
           # sees them directly and you can map any button in its settings.
           sed -i "s/^AppUsesJoystick=.*/AppUsesJoystick=y/" $CFG
+          # Lua needs fseeko/ftello with 64-bit offsets, which 32-bit Android only has from API 24
+          # (the Play Store minimum anyway)
+          if grep -q '^APP_PLATFORM=' $CFG; then sed -i 's/^APP_PLATFORM=.*/APP_PLATFORM=android-24/' $CFG; else echo 'APP_PLATFORM=android-24' >> $CFG; fi
           # xxd.c is a build-time helper tool with its own main(); keep it out of the app
           sed -i "s|^AppBuildExclude='\(.*\)'|AppBuildExclude='\1 commandergenius/src/engine/xxd.c'|" $CFG
-          grep -E '^(MultiABI|AppVersion|AppUsesJoystick|RedefinedKeysGamepad|AppBuildExclude)' $CFG
+          grep -E '^(MultiABI|AppVersion|AppUsesJoystick|RedefinedKeysGamepad|AppBuildExclude|APP_PLATFORM)' $CFG
 
       - name: Generate gamelauncher.menu.h (normally done by CMake)
         run: |
