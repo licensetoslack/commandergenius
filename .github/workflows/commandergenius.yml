@@ -78,7 +78,7 @@ jobs:
           # (the Play Store minimum anyway)
           if grep -q '^APP_PLATFORM=' $CFG; then sed -i 's/^APP_PLATFORM=.*/APP_PLATFORM=android-24/' $CFG; else echo 'APP_PLATFORM=android-24' >> $CFG; fi
           # xxd.c is a build-time helper tool with its own main(); keep it out of the app
-          sed -i "s|^AppBuildExclude='\(.*\)'|AppBuildExclude='\1 commandergenius/src/engine/xxd.c'|" $CFG
+          sed -i "s|^AppBuildExclude='\(.*\)'|AppBuildExclude='\1 commandergenius/src/engine/xxd.c commandergenius/GsKit/base/lua/lua.c'|" $CFG
           grep -E '^(MultiABI|AppVersion|AppUsesJoystick|RedefinedKeysGamepad|AppBuildExclude|APP_PLATFORM)' $CFG
 
       - name: Generate gamelauncher.menu.h (normally done by CMake)
