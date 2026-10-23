@@ -69,7 +69,16 @@ jobs:
           # Pass physical gamepads through as SDL joysticks so Commander Genius
           # sees them directly and you can map any button in its settings.
           sed -i "s/^AppUsesJoystick=.*/AppUsesJoystick=y/" $CFG
-          grep -E '^(MultiABI|AppVersion|AppUsesJoystick|RedefinedKeysGamepad)' $CFG
+          # xxd.c is a build-time helper tool with its own main(); keep it out of the app
+          sed -i "s|^AppBuildExclude='\(.*\)'|AppBuildExclude='\1 commandergenius/src/engine/xxd.c'|" $CFG
+          grep -E '^(MultiABI|AppVersion|AppUsesJoystick|RedefinedKeysGamepad|AppBuildExclude)' $CFG
+
+      - name: Generate gamelauncher.menu.h (normally done by CMake)
+        run: |
+          which xxd || sudo apt-get install -y xxd
+          cd project/jni/application/commandergenius/commandergenius/src/engine
+          xxd -i gamelauncher.menu gamelauncher.menu.h
+          head -3 gamelauncher.menu.h
 
       - name: Patch Java files and build libraries
         run: |
