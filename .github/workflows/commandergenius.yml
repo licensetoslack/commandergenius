@@ -17,7 +17,7 @@ jobs:
       CG_TAG: v3.6.4
       CG_VERSION_NAME: "3.6.4 Release"
       CG_VERSION_CODE: "364000"
-      ARCH_LIST: arm64-v8a
+      ARCH_LIST: armeabi-v7a arm64-v8a
       ANDROID_BUILD_TOOLS: 37.0.0
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -48,6 +48,11 @@ jobs:
           git submodule update --init --recursive --depth=1
           project/jni/sdl2 project/jni/sdl2_image
           project/jni/sdl2_mixer project/jni/sdl2_ttf
+
+      - name: Disable WavPack in SDL2_mixer (unused by the game; its ARMv7 assembly breaks with the current NDK)
+        run: |
+          sed -i 's/^SUPPORT_WAVPACK ?= true/SUPPORT_WAVPACK := false/' project/jni/sdl2_mixer/Android.mk
+          grep -n '^SUPPORT_WAVPACK' project/jni/sdl2_mixer/Android.mk
 
       - name: Check out Commander Genius at the latest release
         run: |
