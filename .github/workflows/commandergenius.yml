@@ -89,6 +89,10 @@ jobs:
           cd project/jni/application/commandergenius/commandergenius/src/engine
           xxd -i gamelauncher.menu gamelauncher.menu.h
           head -3 gamelauncher.menu.h
+          # main() lives in CGenius.cpp, which doesn't include SDL_main.h, so on Android it isn't
+          # renamed to SDL_main and the launcher can't find it (app closes instantly). Include it.
+          sed -i 's|^#include "CGeniusEntry.h"|#include <SDL_main.h>\n#include "CGeniusEntry.h"|' ../CGenius.cpp
+          grep -n 'include' ../CGenius.cpp
 
       - name: Patch Java files and build libraries
         shell: bash
