@@ -133,3 +133,49 @@ jobs:
           name: CommanderGenius-3.6.4-apk
           path: upload
           if-no-files-found: error
+
+  test:
+    # Boot an Android emulator, install the APK, launch it and report any crash from logcat
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: CommanderGenius-3.6.4-apk
+          path: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Write the launch test script
+        run: |
+          cat > launch-test.sh <<'SH'
+          #!/bin/bash
+          set -x
+          APK=$(ls apk/*.apk | head -1)
+          adb install -r -g "$APK" 2>&1 | tail -3
+          adb logcat -c
+          adb shell monkey -p net.sourceforge.clonekeenplus -c android.intent.category.LAUNCHER 1
+          sleep 45
+          adb logcat -d > logcat.txt
+          PID=$(adb shell pidof net.sourceforge.clonekeenplus | tr -d '\r')
+          echo "::notice::App process after 45s: ${PID:-NOT RUNNING}"
+          grep -n -E 'FATAL|AndroidRuntime|DEBUG +:|beginning of crash|Abort message|signal [0-9]+|libapplication|UnsatisfiedLink|dlopen|clonekeenplus|Commander|CGenius|SDL' logcat.txt \
+            | grep -v -E 'ActivityTaskManager: Displayed|chatty' | cut -c1-280 | tail -60 > errs.txt || true
+          split -l 6 errs.txt chunk_ || true
+          for f in chunk_*; do [ -s "$f" ] && echo "::error::$(sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g' $f)"; done
+          true
+          SH
+          chmod +x launch-test.sh
+
+      - name: Launch the app in an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: ./launch-test.sh
