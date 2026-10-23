@@ -1,0 +1,102 @@
+# Builds Commander Genius v3.6.4 (latest upstream release) as an Android APK.
+# Place this file at .github/workflows/commandergenius.yml in a fork of
+# https://github.com/pelya/commandergenius, then run it from the Actions tab.
+# The APK appears under the run's "Artifacts" section.
+
+name: commandergenius
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - '*'
+
+jobs:
+  build:
+    env:
+      APP_NAME: commandergenius
+      CG_TAG: v3.6.4
+      CG_VERSION_NAME: "3.6.4 Release"
+      CG_VERSION_CODE: "364000"
+      ARCH_LIST: armeabi-v7a arm64-v8a
+      ANDROID_BUILD_TOOLS: 37.0.0
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Java 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: 17
+          distribution: temurin
+
+      - name: Set NDK version
+        run: |
+          echo "PATH=$ANDROID_NDK_LATEST_HOME:$ANDROID_SDK_ROOT/build-tools/$ANDROID_BUILD_TOOLS:$PATH" >> $GITHUB_ENV
+          echo "ANDROID_NDK=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
+
+      - name: Check out the repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      - name: Check out SDL2 submodules
+        run: >
+          git submodule update --init --recursive --depth=1
+          project/jni/sdl2 project/jni/sdl2_image
+          project/jni/sdl2_mixer project/jni/sdl2_ttf
+
+      - name: Check out Commander Genius at the latest release
+        run: |
+          D=project/jni/application/commandergenius/commandergenius
+          rm -rf "$D"
+          git clone --depth 1 --branch "$CG_TAG" https://github.com/gerstrong/Commander-Genius.git "$D"
+
+      - name: Symlink the application dir
+        run: |
+          ln -s ${APP_NAME} project/jni/application/src
+
+      - name: Set architectures, version and controller support
+        run: |
+          CFG=project/jni/application/src/AndroidAppSettings.cfg
+          sed -i "s/^MultiABI=.*/MultiABI='${ARCH_LIST}'/" $CFG
+          sed -i "s/^AppVersionCode=.*/AppVersionCode=${CG_VERSION_CODE}/" $CFG
+          sed -i "s/^AppVersionName=.*/AppVersionName=\"${CG_VERSION_NAME}\"/" $CFG
+          # Pass physical gamepads through as SDL joysticks so Commander Genius
+          # sees them directly and you can map any button in its settings.
+          sed -i "s/^AppUsesJoystick=.*/AppUsesJoystick=y/" $CFG
+          grep -E '^(MultiABI|AppVersion|AppUsesJoystick|RedefinedKeysGamepad)' $CFG
+
+      - name: Patch Java files and build libraries
+        run: |
+          ./changeAppSettings.sh
+
+      - name: Set up Gradle and Android SDK licenses
+        working-directory: project
+        run: |
+          for Y in `seq 20`; do echo y; done | sudo $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses
+          ./gradlew assembleRelease || true
+          for Y in `seq 20`; do echo y; done | sudo $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses --sdk_root=`pwd`
+          mkdir -p $HOME/.android
+          keytool -genkey -v -keystore $HOME/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, ST=Debug, C=Debug"
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          echo "proguard.config=proguard.cfg;proguard-local.cfg" >> local.properties
+
+      - name: Build
+        run: |
+          ./build.sh
+
+      - name: Package
+        run: |
+          mkdir -p upload/
+          ./sign.sh
+          mv *.apk upload/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: CommanderGenius-3.6.4-apk
+          path: upload
+          if-no-files-found: error
